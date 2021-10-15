@@ -1,0 +1,79 @@
+service: sns-sqs-example
+frameworkVersion: '2'
+
+variablesResolutionMode: 20210326
+configValidationMode: error
+
+plugins:
+  - serverless-localstack
+
+custom:
+  localstack:
+    debug: true
+    stages:
+      - local
+    lambda:
+      mountCode: true
+    autoStart: true
+  stages:
+    local:
+  Stage:  ${opt:stage, self:provider.stage}
+
+
+
+provider:
+  name: aws
+  runtime: go1.x
+  lambdaHashingVersion: 20201221
+
+
+resources:
+  Resources:
+    SQSExampleTopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        TopicName: sqs-example-topic
+    SQSExampleQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: sqs-example-queue
+        FifoQueue: true
+        ContentBasedDeduplication: true
+        RedrivePolicy:
+          deadLetterTargetArn: !GetAtt SQSExampleDeadLetterQueue.Arn
+          maxReceiveCount: 3
+        VisibilityTimeout: 4000
+        KmsMasterKeyId: alias/rrs-sqs-encryption-key
+    SQSExampleDeadLetterQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        FifoQueue: true
+        ContentBasedDeduplication: true
+        QueueName: sqs-example-queue-dlq
+        KmsMasterKeyId: alias/rrs-sqs-encryption-key
+    SQSExampleQueuePolicy:
+      Type: AWS::SQS::QueuePolicy
+      Properties:
+        Queues:
+          - !Ref SQSExampleQueue
+        PolicyDocument:
+          Statement:
+            Effect: Allow
+            Principal: "*"
+            Action: "sqs:*"
+            Resource: "*"
+            Condition:
+              ArnEquals:
+                "aws:SourceArn": !Ref  SQSExampleTopic
+    SQSExampleQueueToSnsSubscription:
+      Type: AWS::SNS::Subscription
+      Properties:
+        Endpoint: !GetAtt SQSExampleQueue.Arn
+        Protocol: sqs
+        RawMessageDelivery: true
+        TopicArn: !Ref SQSExampleTopic
+  Outputs:
+     SQSExampleTopic:
+       Value: !Ref SQSExampleTopic
+       Export:
+         Name: "sqs-example-topic"
